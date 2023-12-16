@@ -13,7 +13,7 @@
 #define MAX_SEQLENGTH 16
 #define MAX_CHANNELS 16
 
-#define DEFAULT_TEMPO 20
+#define DEFAULT_TEMPO 120
 
 
 // TODO FIX 2D NON-STATIC ARRAY THING!!!!
@@ -140,11 +140,11 @@ class Channel {
     }
 
     bool* changeSequence(uint8_t newSeqLength) {
-      changeSequence(pattern, patLength, newSeqLength);
+      return changeSequence(pattern, patLength, newSeqLength);
     }
 
     bool* changeSequence(bool newPattern[], uint8_t newPatLength) {
-      changeSequence(newPattern, newPatLength, seqLength);
+      return changeSequence(newPattern, newPatLength, seqLength);
     }
 
 

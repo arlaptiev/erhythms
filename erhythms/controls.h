@@ -1,6 +1,9 @@
+// #define __SAM3X8E__ // hack to work with Encoder library
+
 #include <EventButton.h>       // https://github.com/Stutchbury/EventButton/tree/main
 #include <EventAnalog.h>       // https://github.com/Stutchbury/EventAnalog/tree/main
 // #include <EncoderButton.h>     // https://github.com/Stutchbury/EncoderButton/tree/main
+#include <pio_encoder.h>     // https://github.com/gbr1/rp2040-encoder-library
 
 #include <vector>
 
@@ -17,6 +20,7 @@
 #define START_BOUNDARY 200      // Start boundary for analogs
 #define END_BOUNDARY 100        // End boundary for analogs
 #define RATE_LIMIT 0            // Rate limit for analogs
+#define SAMPLE_FRAME 100        // Encoder samples
 
 // default states
 #define IDLE 0
@@ -27,7 +31,8 @@
 // debugging button events
 void click(EventButton& eb) { Serial.print(eb.userId()); Serial.println("B CLICKED"); }
 void click2(EventButton& eb) { Serial.print(eb.userId()); Serial.println("B DOUBLE CLICKED"); }
-void longp(EventButton& eb) { Serial.print(eb.userId()); Serial.print("B LONG PRESSED ("); Serial.print(eb.longPressCount()); Serial.println(")"); }
+void longp(EventButton& eb) {  }
+// void longp(EventButton& eb) { Serial.print(eb.userId()); Serial.print("B LONG PRESSED ("); Serial.print(eb.longPressCount()); Serial.println(")"); }
 void longc(EventButton& eb) { Serial.print(eb.userId()); Serial.println("B LONG CLICKED"); }
 void press(EventButton& eb) { Serial.print(eb.userId()); Serial.println("B PRESSED"); }
 void rel(EventButton& eb) { Serial.print(eb.userId()); Serial.println("B RELEASED"); }
@@ -232,6 +237,145 @@ class Analogs {
 /*
  * ENCODERBUTTONS CLASS
  */
+
+// FOR PICO
+class EventEncoder {
+  public:
+
+    EventEncoder(byte pin): enc(PioEncoder(pin)) {}
+
+    void begin() {
+      enc.begin();
+    }
+
+    void setEncoderHandler(void (*aEncoderHandler)(EventEncoder & e)) {
+      encoderHandler = aEncoderHandler;
+    }
+
+    void update() {
+      unsigned long t = millis();
+      int c = enc.getCount();
+
+      // step
+      if (abs(lastCount - c) >= delta) {
+        change = (lastCount - c) / abs(lastCount - c);
+
+        // do
+        if(encoderHandler) {
+          encoderHandler(*this);
+        }
+        lastCount = c;
+      }
+    }
+
+    int getChange() {
+      return change;
+    }
+
+    void setUserId(unsigned int aid) {
+      id = aid;
+    }
+
+    unsigned int getUserId() {
+      return id;
+    }
+
+  private:
+    PioEncoder enc;
+    unsigned long lastSample = 0;
+    int delta = 2;
+    int lastCount;
+    int change;
+    unsigned int id;
+    unsigned int sampleFrame = SAMPLE_FRAME;
+    void (*encoderHandler)(EventEncoder &) = NULL;
+};
+
+
+#ifdef DEBUG
+void penc(EventEncoder& eb) { Serial.print(eb.getUserId()); Serial.print(Serial.print("E TURNED: ")); Serial.println(eb.getChange()); }
+#endif
+
+
+class EncoderButtons {
+  public:
+    // Constructors
+
+    /**
+     * Construct an encoder object without a button with default settings
+     */
+    EncoderButtons(
+      byte (*pins)[2], uint8_t n,
+      unsigned int defaultState = IDLE
+      ): nEncoders(n) {
+      // initialize the encoders
+      for (int i = 0; i < nEncoders; i++) { e.emplace_back(EventEncoder(pins[i][0])); }     // fill up an array
+      init();                                                                                
+      setConfigs(LONGCLICK_DUR, MULTICLICK_INT, IDLE_TIMEOUT);
+    }
+
+    /**
+     * Construct an encoder object with a button with default settings
+     */
+    EncoderButtons(
+      byte (*pins)[3], uint8_t n,
+      unsigned int defaultState = IDLE,
+      unsigned int longClickDuration = LONGCLICK_DUR,
+      unsigned int multiClickInterval = MULTICLICK_INT,
+      unsigned int idleTimeout = IDLE_TIMEOUT
+      ): nEncoders(n), nButtons(n) {
+      // initialize the encoders
+      for (int i = 0; i < nEncoders; i++) { e.emplace_back(EventEncoder(pins[i][0])); }     // fill up an array
+      for (int i = 0; i < nButtons; i++) { b.emplace_back(EventButton(pins[i][0])); }     // fill up an array
+      init();
+      setConfigs(longClickDuration, multiClickInterval, idleTimeout);
+    }
+
+
+    // Public variables
+    uint8_t nEncoders;
+    uint8_t nButtons;
+    std::vector<EventEncoder> e;
+    std::vector<EventButton> b;
+
+
+    // Public methods
+    void update() {
+      // run update
+      for (int i = 0; i < nEncoders; i++) { e[i].update(); }
+    }
+
+    void setConfigs(
+      unsigned int longClickDuration = LONGCLICK_DUR,
+      unsigned int multiClickInterval = MULTICLICK_INT,
+      unsigned int idleTimeout = IDLE_TIMEOUT
+      ) {
+      // set configs
+      for (int i = 0; i < nEncoders; i++) {
+        b[i].setLongClickDuration(longClickDuration);       // setting description above
+        b[i].setMultiClickInterval(multiClickInterval);     // setting description above
+        b[i].setIdleTimeout(idleTimeout);                   // setting description above
+      }
+    }
+
+
+ private:
+    void init(unsigned int state = 0) {
+        // run init
+        for (int i = 0; i < nEncoders; i++) {
+          e[i].begin();
+          e[i].setUserId(i); 
+          b[i].setUserId(i); 
+  #ifdef DEBUG
+          e[i].setEncoderHandler(penc);
+          // b[i].setClickHandler(clicke);
+  #endif
+          }
+      }
+
+};
+
+// FOR ALL
 // class EncoderButtons {
 //   public:
 //     // Constructors
@@ -241,11 +385,11 @@ class Analogs {
 //      */
 //     EncoderButtons(
 //       byte (*pins)[2], uint8_t n,
-//       unsigned int defaultState = 0
+//       unsigned int defaultState = IDLE
 //       ): nEncoders(n) {
 //       // initialize the encoders
 //       for (int i = 0; i < nEncoders; i++) { e.emplace_back(EncoderButton(pins[i][0], pins[i][1])); }     // fill up an array
-//       setStates(defaultState);                                                                           // set states
+//       init(defaultState);                                                                                
 //       setConfigs(LONGCLICK_DUR, MULTICLICK_INT, IDLE_TIMEOUT);
 //     }
 
@@ -261,6 +405,7 @@ class Analogs {
 //       ): nEncoders(n) {
 //       // initialize the encoders
 //       for (int i = 0; i < nEncoders; i++) { e.emplace_back(EncoderButton(pins[i][0], pins[i][1], pins[i][2])); }     // fill up an array
+//       init(defaultState);
 //       setConfigs(longClickDuration, multiClickInterval, idleTimeout);
 //     }
 
@@ -274,6 +419,7 @@ class Analogs {
 //     void update() {
 //       // run update
 //       for (int i = 0; i < nEncoders; i++) { e[i].update(); }
+//       Serial.println(e[0].position());
 //     }
 
 //     void setStates(unsigned int state) {
